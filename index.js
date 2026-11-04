@@ -59,7 +59,7 @@ async function initializeExtension() {
     const userManager = new UserOutfitManager([...CLOTHING_SLOTS, ...ACCESSORY_SLOTS]);
     const botPanel = new BotOutfitPanel(botManager, CLOTHING_SLOTS, ACCESSORY_SLOTS, saveSettingsDebounced);
     const userPanel = new UserOutfitPanel(userManager, CLOTHING_SLOTS, ACCESSORY_SLOTS, saveSettingsDebounced);
-    const autoOutfitSystem = new AutoOutfitSystem(botManager);
+    const autoOutfitSystem = new AutoOutfitSystem(botManager, userManager);
     
     // Store panels globally for access in other functions
     window.botOutfitPanel = botPanel;

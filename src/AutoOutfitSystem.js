@@ -2,10 +2,10 @@ import { getContext } from "../../../../extensions.js";
 import { extension_settings } from "../../../../extensions.js";
 
 export class AutoOutfitSystem {
-    constructor(outfitManager) {
+    constructor(outfitManager, userManager = null) {
         this.outfitManager = outfitManager;
-        this.isEnabled = false;
-        this.systemPrompt = this.getDefaultPrompt();
+        this.userManager = userManager; // NEU
+        this.isEnabled = false;        this.systemPrompt = this.getDefaultPrompt();
         this.commandPattern = /outfit-system_(\w+)_([\w-]+)\(([^)]*)\)/g;
         this.isProcessing = false;
         this.consecutiveFailures = 0;
@@ -22,30 +22,33 @@ export class AutoOutfitSystem {
     }
 
     getDefaultPrompt() {
-        // NOTE: We removed the {{getglobalvar}} calls from here.
-        // The current outfit is now injected dynamically in executeGenCommand
-        return `Analyze the character's actions in the recent messages. If the character puts on, wears, removes, or changes any clothing items, output the appropriate outfit commands.
+        return `Analyze the actions and descriptions of both the character and the user in the recent messages. If either character or user is described wearing, puts on, removes, or changes any clothing items, output the appropriate outfit commands.
 
-IMPORTANT: Output commands as plain text, NOT as JSON. Use this format:
+IMPORTANT: Output commands as plain text, NOT as JSON.
+Use these exact formats:
+For character:
 outfit-system_wear_headwear("Red Baseball Cap")
+outfit-system_wear_topwear("Black T-Shirt")
 outfit-system_remove_topwear()
 
-Do NOT output JSON arrays or any other format.
+For user:
+user-outfit-system_wear_headwear("Brown Fedora")
+user-outfit-system_wear_topwear("Grey T-Shirt")
+user-outfit-system_remove_topwear()
+
+Do NOT output JSON arrays, markdown blocks, or any other format.
 
 Available actions: wear, remove, change
 Available clothing slots: headwear, topwear, topunderwear, bottomwear, bottomunderwear, footwear, footunderwear
-Available accessory slots: head-accessory, ears_accessory, eyes-accessory, mouth-accessory, neck-accessory, body-accessory, arms-accessory, hands-accessory, waist-accessory, bottom-accessory, legs-accessory, foot-accessory
+Available accessory slots: head-accessory, ears-accessory, eyes-accessory, mouth-accessory, neck-accessory, body-accessory, arms-accessory, hands-accessory, waist-accessory, bottom-accessory, legs-accessory, foot-accessory
 
-Example commands:
-- outfit-system_wear_headwear("Red Baseball Cap")
-- outfit-system_remove_topwear()
-- outfit-system_change_bottomwear("Blue Jeans")
-
-Only output commands if clothing changes are explicitly mentioned. If no changes, output [none].
-
-You can use "change" to change an already worn item with another item. You can also use "change to change state of the same item you are wearing. For example if you are wearing "White Button Blouse" and in story you unbuttoned the front, you can change it into "White Button Blouse (unbuttoned front)"
-
-Important: Always use the exact slot names listed above. Never invent new slot names.`;
+Rules:
+1. If an item is mentioned as currently worn and the current outfit slot is "None", output a "wear" command.
+2. If an item is explicitly changed or replaced, output a "change" or "wear" command.
+3. If an item is removed/taken off, output a "remove" command.
+4. If no clothing items or changes are mentioned at all for a person, do not output commands for that person.
+5. If neither character nor user has any clothing mentioned or changed, output [none].
+6. Always use the exact slot names listed above. Never invent new slot names.`;
     }
 
     enable() {
@@ -162,29 +165,43 @@ Important: Always use the exact slot names listed above. Never invent new slot n
     getOutfitStateString() {
         // Dynamically build the outfit string. This avoids regex issues with macros in prompt templates
         // and ensures the LLM sees exactly what we have in memory.
-        let output = `Here is what character is currently wearing:\n\n**<BOT>'s Current Outfit**\n`;
-        
-        // Add Clothing
+        let output = `Here is what the character and user are currently wearing:\n\n**<BOT>'s Current Outfit**\n`;
+
+        // 1. Bot Clothing
         const clothingSlots = ['headwear', 'topwear', 'topunderwear', 'bottomwear', 'bottomunderwear', 'footwear', 'footunderwear'];
         clothingSlots.forEach(slot => {
-            // Find the current value directly from manager, no macros needed
             const val = this.outfitManager.currentValues[slot] || 'None';
-            // Format slot name for display (optional, but keeping key matches format)
             const displaySlot = slot.replace('underwear', ' Underwear').replace(/^./, c => c.toUpperCase());
             output += `${displaySlot}: ${val}\n`;
         });
 
+        // 2. Bot Accessories
         output += `\n**<BOT>'s Accessories**\n`;
-        
-        // Add Accessories
         const accessorySlots = this.outfitManager.slots.filter(s => !clothingSlots.includes(s));
         accessorySlots.forEach(slot => {
             const val = this.outfitManager.currentValues[slot] || 'None';
-            // Simple formatting for keys like "head-accessory" to "Head Accessory"
             const displaySlot = slot.replace('-', ' ').replace('_', ' ').replace(/^./, c => c.toUpperCase());
             output += `${displaySlot}: ${val}\n`;
         });
-        
+
+        // 3. User Clothing & Accessories (if UserOutfitManager is provided)
+        if (this.userManager) {
+            output += `\n**User's Current Outfit**\n`;
+            clothingSlots.forEach(slot => {
+                const val = this.userManager.currentValues[slot] || 'None';
+                const displaySlot = slot.replace('underwear', ' Underwear').replace(/^./, c => c.toUpperCase());
+                output += `${displaySlot}: ${val}\n`;
+            });
+
+            output += `\n**User's Accessories**\n`;
+            const userAccessorySlots = this.userManager.slots.filter(s => !clothingSlots.includes(s));
+            userAccessorySlots.forEach(slot => {
+                const val = this.userManager.currentValues[slot] || 'None';
+                const displaySlot = slot.replace('-', ' ').replace('_', ' ').replace(/^./, c => c.toUpperCase());
+                output += `${displaySlot}: ${val}\n`;
+            });
+        }
+
         return output;
     }
 
@@ -264,7 +281,8 @@ Important: Always use the exact slot names listed above. Never invent new slot n
         if (!text) return [];
         
         const commands = [];
-        const matches = text.matchAll(/outfit-system_(\w+)_([\w-]+)\(([^)]*)\)/g);
+        // Matcht sowohl outfit-system_... als auch user-outfit-system_...
+        const matches = text.matchAll(/(user-)?outfit-system_(\w+)_([\w-]+)\(([^)]*)\)/g);
         
         for (const match of matches) {
             commands.push(match[0]);
@@ -273,6 +291,9 @@ Important: Always use the exact slot names listed above. Never invent new slot n
         console.log(`[AutoOutfitSystem] Found ${commands.length} commands:`, commands);
         return commands;
     }
+
+
+    
 
     async processCommandBatch(commands) {
         if (!commands || commands.length === 0) {
@@ -332,17 +353,19 @@ Important: Always use the exact slot names listed above. Never invent new slot n
 
     async processSingleCommand(command) {
         try {
-            const match = command.match(/outfit-system_(\w+)_([\w-]+)\(([^)]*)\)/);
+            const match = command.match(/(user-)?outfit-system_(\w+)_([\w-]+)\(([^)]*)\)/);
             if (!match) {
                 throw new Error(`Invalid command format: ${command}`);
             }
             
-            const [, action, slot, value] = match;
+            const [, isUserPrefix, action, slot, value] = match;
             const cleanValue = value.replace(/"/g, '').trim();
+            const target = isUserPrefix ? 'user' : 'bot';
             
-            console.log(`[AutoOutfitSystem] Processing: ${action} ${slot} "${cleanValue}"`);
+            console.log(`[AutoOutfitSystem] Processing (${target}): ${action} ${slot} "${cleanValue}"`);
             
-            const message = await this.executeCommand(action, slot, cleanValue);
+            const targetManager = (target === 'user' && this.userManager) ? this.userManager : this.outfitManager;
+            const message = await this.executeCommand(action, slot, cleanValue, targetManager);
             
             return {
                 success: true,
@@ -350,7 +373,8 @@ Important: Always use the exact slot names listed above. Never invent new slot n
                 message,
                 action,
                 slot,
-                value: cleanValue
+                value: cleanValue,
+                target
             };
             
         } catch (error) {
@@ -362,8 +386,8 @@ Important: Always use the exact slot names listed above. Never invent new slot n
         }
     }
 
-    async executeCommand(action, slot, value) {
-        const validSlots = [...this.outfitManager.slots];
+    async executeCommand(action, slot, value, manager = this.outfitManager) {
+        const validSlots = [...manager.slots];
         
         if (!validSlots.includes(slot)) {
             throw new Error(`Invalid slot: ${slot}. Valid slots: ${validSlots.join(', ')}`);
@@ -373,21 +397,26 @@ Important: Always use the exact slot names listed above. Never invent new slot n
             throw new Error(`Invalid action: ${action}. Valid actions: wear, remove, change`);
         }
 
-        return await this.outfitManager.setOutfitItem(slot, action === 'remove' ? 'None' : value);
+        return await manager.setOutfitItem(slot, action === 'remove' ? 'None' : value);
     }
 
     updateOutfitPanel() {
-        if (window.botOutfitPanel && window.botOutfitPanel.isVisible) {
-            setTimeout(() => {
-                try {
+        setTimeout(() => {
+            try {
+                if (window.botOutfitPanel && window.botOutfitPanel.isVisible) {
                     window.botOutfitPanel.outfitManager.loadOutfit();
                     window.botOutfitPanel.renderContent();
-                    console.log('[AutoOutfitSystem] Outfit panel updated');
-                } catch (error) {
-                    console.error('Failed to update outfit panel:', error);
+                    console.log('[AutoOutfitSystem] Bot outfit panel updated');
                 }
-            }, 500);
-        }
+                if (window.userOutfitPanel && window.userOutfitPanel.isVisible) {
+                    window.userOutfitPanel.outfitManager.loadOutfit(); // HIER: outfitManager statt userManager
+                    window.userOutfitPanel.renderContent();
+                    console.log('[AutoOutfitSystem] User outfit panel updated');
+                }
+            } catch (error) {
+                console.error('Failed to update outfit panels:', error);
+            }
+        }, 500);
     }
 
     getLastMessages(count = 3) {
