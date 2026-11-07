@@ -22,32 +22,33 @@ export class AutoOutfitSystem {
     }
 
     getDefaultPrompt() {
-        return `Analyze the actions and descriptions of both the character and the user in the recent messages. If either character or user is described wearing, puts on, removes, or changes any clothing items, output the appropriate outfit commands.
+        return `Analyze the actions, state, and descriptions of both the character and the user in the recent messages. Determine which clothing items they are currently wearing, putting on, or taking off.
 
 IMPORTANT: Output commands as plain text, NOT as JSON.
-Use these exact formats:
+Formats:
 For character:
-outfit-system_wear_headwear("Red Baseball Cap")
-outfit-system_wear_topwear("Black T-Shirt")
+outfit-system_wear_headwear("Red Cap")
 outfit-system_remove_topwear()
+outfit-system_remove_bottomwear()
+outfit-system_remove_footwear()
 
 For user:
-user-outfit-system_wear_headwear("Brown Fedora")
 user-outfit-system_wear_topwear("Grey T-Shirt")
-user-outfit-system_remove_topwear()
-
-Do NOT output JSON arrays, markdown blocks, or any other format.
+user-outfit-system_remove_footwear()
+user-outfit-system_remove_footunderwear()
+user-outfit-system_remove_bottomwear()
 
 Available actions: wear, remove, change
-Available clothing slots: headwear, topwear, topunderwear, bottomwear, bottomunderwear, footwear, footunderwear
-Available accessory slots: head-accessory, ears-accessory, eyes-accessory, mouth-accessory, neck-accessory, body-accessory, arms-accessory, hands-accessory, waist-accessory, bottom-accessory, legs-accessory, foot-accessory
+Available slots:
+- Clothing: headwear, topwear, topunderwear, bottomwear, bottomunderwear, footwear, footunderwear
+- Accessories: head-accessory, ears-accessory, eyes-accessory, mouth-accessory, neck-accessory, body-accessory, arms-accessory, hands-accessory, waist-accessory, bottom-accessory, legs-accessory, foot-accessory
 
-Rules:
-1. If an item is mentioned as currently worn and the current outfit slot is "None", output a "wear" command.
-2. If an item is explicitly changed or replaced, output a "change" or "wear" command.
-3. If an item is removed/taken off, output a "remove" command.
-4. If no clothing items or changes are mentioned at all for a person, do not output commands for that person.
-5. If neither character nor user has any clothing mentioned or changed, output [none].
+STRICT RULES:
+1. HAIR IS NOT HEADWEAR: Never put hairstyles or natural hair into headwear. Headwear is ONLY hats, caps, helmets, beanies, or hoods.
+2. REMOVALS: If a character or user removes an item, is described as bare (e.g. bare feet, bare legs, bare chest), or a slot is explicitly "none" / "off" / "on the floor", you MUST output a "remove" command for that specific slot (e.g. user-outfit-system_remove_footwear()).
+3. WEARING: If an item is explicitly worn or put on, output a "wear" command with the item name.
+4. If no clothing items or changes are mentioned for a person, do not output commands for that person.
+5. If nothing changed or was described, output [none].
 6. Always use the exact slot names listed above. Never invent new slot names.`;
     }
 
